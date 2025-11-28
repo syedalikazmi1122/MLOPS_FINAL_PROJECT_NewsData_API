@@ -1,2 +1,23 @@
+# Core dependencies
 requests==2.31.0
 python-dotenv==1.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=12.0.0  # For parquet support
+
+# Apache Airflow (optional - requires Python 3.9-3.13)
+# apache-airflow>=2.7.0  # Uncomment when ready to set up Airflow
+
+# Data quality and profiling (for Phase I)
+ydata-profiling>=4.0.0  # For data quality reports (formerly pandas-profiling)
+
+# MLflow (for Phase II)
+mlflow>=2.8.0
+
+# DVC (for data versioning)
+dvc[s3]>=3.0.0  # S3 support (works with MinIO - S3-compatible)
+
+# Optional: For better performance
+fastparquet>=2023.0.0

@@ -1,1 +1,55 @@
-venv
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Data directories
+data/
+*.csv
+*.json
+*.geojson
+*.ndjson
+*.gz
+*.parquet
+
+# Exception: DVC metadata files should be tracked
+!data/**/*.dvc
+
+# DVC
+.dvc/
+.dvcignore
+# Note: .dvc files (metadata) should be tracked in git, not ignored
+# Only the actual data files are ignored
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+*.dockerignore
