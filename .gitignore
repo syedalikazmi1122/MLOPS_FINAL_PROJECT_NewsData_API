@@ -1,37 +1,32 @@
 # Python
-venv/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
+*$py.class
 *.so
-*.egg
-*.egg-info/
-dist/
-build/
+.Python
+venv/
+env/
+ENV/
+.venv
 
-# Data directories
-data/
-*.csv
-*.json
-*.geojson
-*.ndjson
-*.gz
-*.parquet
-
-# Exception: DVC metadata files should be tracked
-!data/**/*.dvc
+# Data files (tracked by DVC)
+data/raw/*.geojson
+data/raw/*.ndjson.gz
+data/processed/*.parquet
+!data/processed/*.dvc
 
 # DVC
-.dvc/
-.dvcignore
-# Note: .dvc files (metadata) should be tracked in git, not ignored
-# Only the actual data files are ignored
+.dvc/cache/
+.dvc/tmp/
+
+# Airflow
+logs/
+plugins/__pycache__/
+airflow.db
+*.db
 
 # MLflow
 mlruns/
-mlartifacts/
 
 # Environment variables
 .env
@@ -42,14 +37,23 @@ mlartifacts/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-logs/
+# MinIO data (if stored locally)
+minio-data/
 
-# Docker
-*.dockerignore
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Profiling reports (generated files)
+*.html
+!templates/*.html
+
+# Backup files
+*.backup
+*.bak

@@ -1,6 +1,5 @@
-version: '3.8'
-
 services:
+  # MinIO Object Storage
   minio:
     image: minio/minio:latest
     container_name: minio
@@ -19,4 +18,174 @@ services:
       timeout: 20s
       retries: 3
     restart: unless-stopped
+    networks:
+      - mlops-network
 
+  # PostgreSQL Database for Airflow
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+    networks:
+      - mlops-network
+
+  # Airflow Webserver
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+      # MinIO Configuration
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "earthquake-data"
+      # Dagshub MLflow Configuration
+      MLFLOW_TRACKING_URI: "https://dagshub.com/i222472/my-first-repo.mlflow"
+      MLFLOW_TRACKING_USERNAME: "i222472"
+      MLFLOW_TRACKING_PASSWORD: "${DAGSHUB_TOKEN:-}"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+      - ./etl:/opt/airflow/etl
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./train.py:/opt/airflow/train.py
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - ./.dvc:/opt/airflow/.dvc
+    command: >
+      bash -c "airflow db upgrade &&
+               airflow users create --username airflow --firstname Admin --lastname User --role Admin --email admin@example.com --password airflow || true &&
+               airflow webserver --hostname 0.0.0.0 --port 8080"
+    restart: always
+    networks:
+      - mlops-network
+
+  # Airflow Scheduler
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      # MinIO Configuration
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "earthquake-data"
+      # Dagshub MLflow Configuration
+      MLFLOW_TRACKING_URI: "https://dagshub.com/i222472/my-first-repo.mlflow"
+      MLFLOW_TRACKING_USERNAME: "i222472"
+      MLFLOW_TRACKING_PASSWORD: "${DAGSHUB_TOKEN:-}"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+      - ./etl:/opt/airflow/etl
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./train.py:/opt/airflow/train.py
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - ./.dvc:/opt/airflow/.dvc
+    command: scheduler
+    restart: always
+    networks:
+      - mlops-network
+
+  # FastAPI Model Serving API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    depends_on:
+      - minio
+    environment:
+      # Dagshub MLflow Configuration
+      MLFLOW_TRACKING_URI: "https://dagshub.com/i222472/my-first-repo.mlflow"
+      MLFLOW_TRACKING_USERNAME: "i222472"
+      MLFLOW_TRACKING_PASSWORD: "${DAGSHUB_TOKEN:-}"
+    ports:
+      - "8000:8000"
+    restart: always
+    networks:
+      - mlops-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    restart: always
+    networks:
+      - mlops-network
+
+  # Grafana - Monitoring Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    restart: always
+    networks:
+      - mlops-network
+
+volumes:
+  postgres-db-volume:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  mlops-network:
+    driver: bridge

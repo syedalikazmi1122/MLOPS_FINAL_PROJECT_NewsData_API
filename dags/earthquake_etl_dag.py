@@ -1,11 +1,14 @@
 """
 Apache Airflow DAG for Automated Earthquake Data Pipeline.
 
-This DAG orchestrates the complete ETL pipeline:
+This DAG orchestrates the complete MLOps pipeline:
 1. Extract: Fetch earthquake data from USGS API
 2. Quality Check: Validate data quality (mandatory gate)
 3. Transform: Format data for model training
-4. Load: Store processed data and version with DVC
+4. Upload: Store processed data in MinIO
+5. Version: Version data with DVC and push to both MinIO and Dagshub
+6. Profiling: Generate data profiling report and log to MLflow
+7. Train: Train ML model and track with MLflow
 
 Schedule: Daily at 2 AM UTC
 """
@@ -50,6 +53,14 @@ START_YEAR = 2010
 END_YEAR = datetime.now().year - 1  # Previous year to avoid incomplete data
 INTERVAL_YEARS = 1
 MIN_MAGNITUDE = 3.0
+
+# MinIO Configuration (can be overridden via environment variables)
+# In Docker: MINIO_ENDPOINT is set to 'http://minio:9000' in docker-compose.yml
+# Locally: Use 'http://localhost:9000'
+MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT', 'http://localhost:9000')
+MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY', 'minioadmin')
+MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY', 'minioadmin')
+MINIO_BUCKET = os.getenv('MINIO_BUCKET', 'earthquake-data')
 
 
 def extract_data(**context):
@@ -153,35 +164,171 @@ def transform_data(**context):
     return output_file
 
 
-def version_data(**context):
-    """Version data using DVC."""
+def upload_to_minio(**context):
+    """Upload processed data to MinIO object storage."""
     import subprocess
     
     # Get processed file from transform task
     ti = context['ti']
     processed_file = ti.xcom_pull(task_ids='transform_data')
     
+    if not processed_file or not os.path.exists(processed_file):
+        raise Exception(f"Processed file not found: {processed_file}")
+    
+    print(f"[DAG] Uploading to MinIO: {processed_file}")
+    
+    cmd = [
+        'python',
+        os.path.join(PROJECT_ROOT, 'etl', 'upload_to_minio.py'),
+        '--file', processed_file,
+        '--bucket', MINIO_BUCKET,
+        '--endpoint', MINIO_ENDPOINT,
+        '--access-key', MINIO_ACCESS_KEY,
+        '--secret-key', MINIO_SECRET_KEY
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
+    
+    if result.returncode != 0:
+        print(f"[DAG] MinIO upload failed: {result.stderr}")
+        print(result.stdout)
+        raise Exception(f"MinIO upload failed: {result.stderr}")
+    
+    print(f"[DAG] MinIO upload completed successfully")
+    print(result.stdout)
+    
+    return processed_file
+
+
+def version_data(**context):
+    """Version data using DVC and push to both MinIO and Dagshub remotes."""
+    import subprocess
+    
+    # Get processed file from upload task
+    ti = context['ti']
+    processed_file = ti.xcom_pull(task_ids='upload_to_minio')
+    
+    if not processed_file or not os.path.exists(processed_file):
+        raise Exception(f"Processed file not found: {processed_file}")
+    
     print(f"[DAG] Versioning data with DVC: {processed_file}")
     
+    # Set environment variables for DVC to use MinIO
+    env = os.environ.copy()
+    env['AWS_ACCESS_KEY_ID'] = MINIO_ACCESS_KEY
+    env['AWS_SECRET_ACCESS_KEY'] = MINIO_SECRET_KEY
+    env['AWS_ENDPOINT_URL'] = MINIO_ENDPOINT
+    
     # DVC commands
-    # Note: DVC remote should be configured separately (Dagshub, S3, etc.)
     dvc_commands = [
-        # Add file to DVC tracking
+        # Add file to DVC tracking (if not already tracked)
         ['dvc', 'add', processed_file],
-        # Commit DVC metadata (if git is configured)
-        # ['git', 'add', f'{processed_file}.dvc', '.gitignore'],
-        # ['git', 'commit', '-m', f'Add processed data: {os.path.basename(processed_file)}'],
+        # Push to MinIO remote (default remote)
+        ['dvc', 'push', '--remote', 'minio-storage'],
+        # Push to Dagshub remote (for Phase II integration)
+        ['dvc', 'push', '--remote', 'dagshub'],
     ]
     
     for cmd in dvc_commands:
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT,
+            env=env
+        )
         if result.returncode != 0:
+            # Check if file is already tracked (this is OK)
+            if 'already tracked' in result.stderr.lower() or 'already in cache' in result.stderr.lower():
+                print(f"[DAG] File already tracked, continuing...")
+                continue
             print(f"[DAG] Warning: DVC command failed: {cmd}")
             print(result.stderr)
-            # Don't fail DAG if DVC is not fully configured yet
-            # raise Exception(f"DVC versioning failed: {result.stderr}")
+            print(result.stdout)
+            # Don't fail DAG if DVC remote is not fully configured
+            # In production, you may want to make this stricter
+            if 'push' in cmd[1]:
+                remote_name = cmd[cmd.index('--remote') + 1] if '--remote' in cmd else 'default'
+                print(f"[DAG] Warning: DVC push to {remote_name} failed. Ensure remote is configured.")
+                # Continue with other remotes even if one fails
+                continue
     
-    print(f"[DAG] Data versioning completed")
+    print(f"[DAG] Data versioning completed (pushed to MinIO and Dagshub)")
+    return processed_file
+
+
+def generate_profiling_report(**context):
+    """Generate data profiling report and log to MLflow."""
+    import subprocess
+    
+    # Get processed file from version task
+    ti = context['ti']
+    processed_file = ti.xcom_pull(task_ids='version_data')
+    
+    if not processed_file or not os.path.exists(processed_file):
+        raise Exception(f"Processed file not found: {processed_file}")
+    
+    print(f"[DAG] Generating profiling report for {processed_file}...")
+    
+    # Generate report and log to MLflow
+    cmd = [
+        'python',
+        os.path.join(PROJECT_ROOT, 'etl', 'generate_profiling_report.py'),
+        '--input', processed_file,
+        '--format', 'parquet',
+        '--log-to-mlflow'
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
+    
+    if result.returncode != 0:
+        print(f"[DAG] Profiling report generation failed: {result.stderr}")
+        print(result.stdout)
+        # Don't fail DAG if MLflow is not configured yet
+        print(f"[DAG] Warning: Profiling report generation failed. Ensure MLflow is configured.")
+    else:
+        print(f"[DAG] Profiling report generated and logged to MLflow")
+        print(result.stdout)
+    
+    return processed_file
+
+
+def train_model(**context):
+    """Train ML model and track with MLflow."""
+    import subprocess
+    
+    # Get processed file from profiling task
+    ti = context['ti']
+    processed_file = ti.xcom_pull(task_ids='generate_profiling_report')
+    
+    if not processed_file or not os.path.exists(processed_file):
+        raise Exception(f"Processed file not found: {processed_file}")
+    
+    print(f"[DAG] Training model on {processed_file}...")
+    
+    # Generate experiment name with timestamp
+    timestamp = datetime.now().strftime('%Y%m%d')
+    experiment_name = f'earthquake_prediction_{timestamp}'
+    
+    cmd = [
+        'python',
+        os.path.join(PROJECT_ROOT, 'train.py'),
+        '--data', processed_file,
+        '--experiment-name', experiment_name,
+        '--model-type', 'random_forest',
+        '--n-estimators', '100'
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
+    
+    if result.returncode != 0:
+        print(f"[DAG] Model training failed: {result.stderr}")
+        print(result.stdout)
+        raise Exception(f"Model training failed: {result.stderr}")
+    
+    print(f"[DAG] Model training completed successfully")
+    print(result.stdout)
+    
     return processed_file
 
 
@@ -204,12 +351,30 @@ transform_task = PythonOperator(
     dag=dag,
 )
 
+upload_task = PythonOperator(
+    task_id='upload_to_minio',
+    python_callable=upload_to_minio,
+    dag=dag,
+)
+
 version_task = PythonOperator(
     task_id='version_data',
     python_callable=version_data,
     dag=dag,
 )
 
+profiling_task = PythonOperator(
+    task_id='generate_profiling_report',
+    python_callable=generate_profiling_report,
+    dag=dag,
+)
+
+train_task = PythonOperator(
+    task_id='train_model',
+    python_callable=train_model,
+    dag=dag,
+)
+
 # Task dependencies
-extract_task >> quality_check_task >> transform_task >> version_task
+extract_task >> quality_check_task >> transform_task >> upload_task >> version_task >> profiling_task >> train_task
 

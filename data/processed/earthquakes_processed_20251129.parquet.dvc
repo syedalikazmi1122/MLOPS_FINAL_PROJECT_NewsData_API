@@ -1,0 +1,5 @@
+outs:
+- md5: 69470524bfc07429e0930b3f4f91dffc
+  size: 19279080
+  hash: md5
+  path: earthquakes_processed_20251129.parquet

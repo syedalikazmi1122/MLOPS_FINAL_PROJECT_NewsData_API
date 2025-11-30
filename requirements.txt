@@ -14,10 +14,31 @@ pyarrow>=12.0.0  # For parquet support
 ydata-profiling>=4.0.0  # For data quality reports (formerly pandas-profiling)
 
 # MLflow (for Phase II)
-mlflow>=2.8.0
+# Note: Dagshub requires MLflow < 3.0 (MLflow 3 has breaking changes)
+mlflow>=2.8.0,<3.0.0
 
 # DVC (for data versioning)
 dvc[s3]>=3.0.0  # S3 support (works with MinIO - S3-compatible)
 
+# MinIO/S3 client for direct uploads
+boto3>=1.28.0
+
 # Optional: For better performance
 fastparquet>=2023.0.0
+
+# FastAPI for model serving (Phase III)
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# Testing (Phase III)
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+
+# Code Quality (Phase III)
+flake8>=6.1.0
+black>=23.9.0
+
+# CML for model comparison (Phase III)
+cml>=0.18.0

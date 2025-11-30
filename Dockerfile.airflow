@@ -1,0 +1,26 @@
+FROM apache/airflow:2.8.1
+
+USER root
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+
+# Install Python dependencies
+COPY requirements.txt /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt
+
+# Ensure MLflow < 3.0 for Dagshub compatibility
+RUN pip install --no-cache-dir "mlflow>=2.8.0,<3.0.0"
+
+# Install DVC with S3 support
+RUN pip install --no-cache-dir 'dvc[s3]>=3.0.0'
+
+# Set working directory
+WORKDIR /opt/airflow
+

@@ -178,8 +178,19 @@ def main(
     # For Dagshub: mlflow.set_tracking_uri("https://dagshub.com/<username>/<repo>.mlflow")
     mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI')
     if mlflow_tracking_uri:
-        mlflow.set_tracking_uri(mlflow_tracking_uri)
-        print(f"[train] Using MLflow tracking URI: {mlflow_tracking_uri}")
+        # Handle Dagshub authentication if credentials are provided
+        mlflow_username = os.getenv('MLFLOW_TRACKING_USERNAME')
+        mlflow_password = os.getenv('MLFLOW_TRACKING_PASSWORD')
+        if mlflow_username and mlflow_password:
+            import urllib.parse
+            # Embed credentials in tracking URI for Dagshub
+            parsed = urllib.parse.urlparse(mlflow_tracking_uri)
+            auth_uri = f"{parsed.scheme}://{mlflow_username}:{mlflow_password}@{parsed.netloc}{parsed.path}"
+            mlflow.set_tracking_uri(auth_uri)
+            print(f"[train] Using MLflow tracking URI: {parsed.scheme}://{parsed.netloc}{parsed.path} (authenticated)")
+        else:
+            mlflow.set_tracking_uri(mlflow_tracking_uri)
+            print(f"[train] Using MLflow tracking URI: {mlflow_tracking_uri}")
     else:
         print("[train] Using local MLflow tracking (set MLFLOW_TRACKING_URI for remote)")
     
