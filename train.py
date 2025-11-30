@@ -40,23 +40,25 @@ def load_data(data_path: str) -> pd.DataFrame:
     return df
 
 
-def prepare_features(df: pd.DataFrame, target: str = 'magnitude') -> tuple:
+def prepare_features(df: pd.DataFrame, target: str = 'magnitude', log_transform_target: bool = False) -> tuple:
     """
     Prepare features and target for training.
     
     Args:
         df: DataFrame with all features
-        target: Target variable ('magnitude' or 'time_since_next')
+        target: Target variable ('magnitude' or 'time_since_last')
+        log_transform_target: Whether to apply log transformation to target
     
     Returns:
-        X (features), y (target), feature_names
+        X (features), y (target), feature_names, transform_info
     """
     print(f"[train] Preparing features for target: {target}")
     
     # Exclude non-feature columns
     exclude_cols = [
         'id', 'time', 'datetime', 'place', 'event_type', 'status',
-        'mag_type', 'tsunami', 'significance', 'gap', 'dmin', 'rms', 'nst'
+        'mag_type', 'tsunami', 'significance', 'gap', 'dmin', 'rms', 'nst',
+        'year', 'month', 'day', 'hour', 'day_of_week', 'day_of_year', 'week_of_year'  # Use cyclical encodings instead
     ]
     
     # If predicting magnitude, exclude magnitude-related lags that would cause leakage
@@ -66,7 +68,9 @@ def prepare_features(df: pd.DataFrame, target: str = 'magnitude') -> tuple:
         # Use rolling statistics from previous earthquakes
     else:
         # For time prediction, we can use current magnitude
+        # But exclude the current time_since_last (it's what we're predicting)
         exclude_cols.extend(['time_since_last'])
+        # Keep time_since_last_lag features as they're historical
     
     # Select feature columns
     feature_cols = [col for col in df.columns if col not in exclude_cols]
@@ -81,13 +85,26 @@ def prepare_features(df: pd.DataFrame, target: str = 'magnitude') -> tuple:
     X = X.fillna(X.median())
     y = y.fillna(y.median())
     
+    # Apply log transformation if requested (useful for skewed targets)
+    transform_info = {'log_transform': False, 'y_original_mean': y.mean()}
+    if log_transform_target:
+        # Ensure all values are positive
+        y_min = y.min()
+        if y_min <= 0:
+            y = y - y_min + 0.001  # Shift to make all positive
+        y = np.log1p(y)  # log(1+x) to handle zeros better
+        transform_info['log_transform'] = True
+        transform_info['y_shift'] = y_min - 0.001 if y_min <= 0 else 0
+        print(f"[train] Applied log transformation to target")
+    
     print(f"[train] Selected {len(feature_cols)} features")
     print(f"[train] Features: {feature_cols[:10]}..." if len(feature_cols) > 10 else f"[train] Features: {feature_cols}")
+    print(f"[train] Target stats - Mean: {y.mean():.4f}, Std: {y.std():.4f}, Min: {y.min():.4f}, Max: {y.max():.4f}")
     
-    return X, y, feature_cols
+    return X, y, feature_cols, transform_info
 
 
-def train_model(X_train, y_train, X_val, y_val, model_type: str = 'random_forest', **kwargs):
+def train_model(X_train, y_train, X_val, y_val, model_type: str = 'random_forest', transform_info: dict = None, **kwargs):
     """
     Train a model and return it with metrics.
     
@@ -95,6 +112,7 @@ def train_model(X_train, y_train, X_val, y_val, model_type: str = 'random_forest
         X_train, y_train: Training data
         X_val, y_val: Validation data
         model_type: Type of model ('random_forest', 'gradient_boosting', 'linear')
+        transform_info: Dictionary with transformation info (for inverse transform)
         **kwargs: Model hyperparameters
     
     Returns:
@@ -135,14 +153,29 @@ def train_model(X_train, y_train, X_val, y_val, model_type: str = 'random_forest
     y_pred_train = model.predict(X_train_scaled)
     y_pred_val = model.predict(X_val_scaled)
     
-    # Calculate metrics
+    # Inverse transform predictions if log transform was applied
+    if transform_info and transform_info.get('log_transform', False):
+        y_pred_train = np.expm1(y_pred_train)  # Inverse of log1p
+        y_pred_val = np.expm1(y_pred_val)
+        y_train_orig = np.expm1(y_train)
+        y_val_orig = np.expm1(y_val)
+        if transform_info.get('y_shift', 0) != 0:
+            y_pred_train = y_pred_train + transform_info['y_shift']
+            y_pred_val = y_pred_val + transform_info['y_shift']
+            y_train_orig = y_train_orig + transform_info['y_shift']
+            y_val_orig = y_val_orig + transform_info['y_shift']
+    else:
+        y_train_orig = y_train
+        y_val_orig = y_val
+    
+    # Calculate metrics (on original scale)
     metrics = {
-        'train_rmse': np.sqrt(mean_squared_error(y_train, y_pred_train)),
-        'train_mae': mean_absolute_error(y_train, y_pred_train),
-        'train_r2': r2_score(y_train, y_pred_train),
-        'val_rmse': np.sqrt(mean_squared_error(y_val, y_pred_val)),
-        'val_mae': mean_absolute_error(y_val, y_pred_val),
-        'val_r2': r2_score(y_val, y_pred_val),
+        'train_rmse': np.sqrt(mean_squared_error(y_train_orig, y_pred_train)),
+        'train_mae': mean_absolute_error(y_train_orig, y_pred_train),
+        'train_r2': r2_score(y_train_orig, y_pred_train),
+        'val_rmse': np.sqrt(mean_squared_error(y_val_orig, y_pred_val)),
+        'val_mae': mean_absolute_error(y_val_orig, y_pred_val),
+        'val_r2': r2_score(y_val_orig, y_pred_val),
     }
     
     print(f"[train] Validation RMSE: {metrics['val_rmse']:.4f}")
@@ -161,6 +194,7 @@ def main(
     target: str = 'magnitude',
     test_size: float = 0.2,
     model_type: str = 'random_forest',
+    log_transform_target: bool = False,
     **hyperparameters
 ):
     """
@@ -200,8 +234,16 @@ def main(
     # Load data
     df = load_data(data_path)
     
+    # Auto-detect if log transform is beneficial for time_since_last
+    if target == 'time_since_last' and not log_transform_target:
+        # Check skewness
+        target_skew = df[target].skew()
+        if target_skew > 1.0:  # Highly skewed
+            log_transform_target = True
+            print(f"[train] Target is skewed (skewness={target_skew:.2f}), enabling log transformation")
+    
     # Prepare features
-    X, y, feature_names = prepare_features(df, target=target)
+    X, y, feature_names, transform_info = prepare_features(df, target=target, log_transform_target=log_transform_target)
     
     # Time-series split (maintain temporal order)
     # Sort by datetime if available
@@ -241,6 +283,7 @@ def main(
         model, metrics = train_model(
             X_train, y_train, X_val, y_val,
             model_type=model_type,
+            transform_info=transform_info,
             **hyperparameters
         )
         
@@ -253,10 +296,20 @@ def main(
         X_test_scaled = scaler.transform(X_test)
         y_pred_test = model.predict(X_test_scaled)
         
+        # Inverse transform test predictions if needed
+        if transform_info and transform_info.get('log_transform', False):
+            y_pred_test = np.expm1(y_pred_test)
+            y_test_orig = np.expm1(y_test)
+            if transform_info.get('y_shift', 0) != 0:
+                y_pred_test = y_pred_test + transform_info['y_shift']
+                y_test_orig = y_test_orig + transform_info['y_shift']
+        else:
+            y_test_orig = y_test
+        
         test_metrics = {
-            'test_rmse': np.sqrt(mean_squared_error(y_test, y_pred_test)),
-            'test_mae': mean_absolute_error(y_test, y_pred_test),
-            'test_r2': r2_score(y_test, y_pred_test),
+            'test_rmse': np.sqrt(mean_squared_error(y_test_orig, y_pred_test)),
+            'test_mae': mean_absolute_error(y_test_orig, y_pred_test),
+            'test_r2': r2_score(y_test_orig, y_pred_test),
         }
         
         for metric_name, metric_value in test_metrics.items():
@@ -351,6 +404,11 @@ if __name__ == "__main__":
         default=0.1,
         help="Learning rate (for gradient boosting)"
     )
+    parser.add_argument(
+        "--log-transform",
+        action='store_true',
+        help="Apply log transformation to target variable (auto-enabled for time_since_last if skewed)"
+    )
     
     args = parser.parse_args()
     
@@ -366,6 +424,7 @@ if __name__ == "__main__":
         target=args.target,
         test_size=args.test_size,
         model_type=args.model_type,
+        log_transform_target=args.log_transform,
         **hyperparameters
     )
 

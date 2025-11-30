@@ -126,17 +126,26 @@ def create_lag_features(df: pd.DataFrame, sort_by_time: bool = True) -> pd.DataF
     if sort_by_time:
         df = df.sort_values('datetime').reset_index(drop=True)
     
-    # Set datetime as index for rolling operations
-    df_indexed = df.set_index('datetime')
-    
-    # Time since last earthquake (in hours)
+    # Time since last earthquake (in hours) - calculate first
     df['time_since_last'] = df['datetime'].diff().dt.total_seconds() / 3600
     df['time_since_last'] = df['time_since_last'].fillna(0)
+    # Replace any negative or zero values with a small positive value
+    df['time_since_last'] = df['time_since_last'].replace(0, np.nan)
+    df['time_since_last'] = df['time_since_last'].fillna(df['time_since_last'].median())
+    df['time_since_last'] = df['time_since_last'].clip(lower=0.001)  # Avoid log(0)
+    
+    # Set datetime as index for rolling operations (after creating time_since_last)
+    df_indexed = df.set_index('datetime')
     
     # Lag features for magnitude
     df['mag_lag1'] = df['magnitude'].shift(1)
     df['mag_lag2'] = df['magnitude'].shift(2)
     df['mag_lag3'] = df['magnitude'].shift(3)
+    
+    # Lag features for time_since_last (critical for predicting next time interval)
+    df['time_since_last_lag1'] = df['time_since_last'].shift(1)
+    df['time_since_last_lag2'] = df['time_since_last'].shift(2)
+    df['time_since_last_lag3'] = df['time_since_last'].shift(3)
     
     # Rolling statistics (last 24 hours, 7 days, 30 days)
     # Using indexed dataframe for time-based rolling
@@ -155,6 +164,22 @@ def create_lag_features(df: pd.DataFrame, sort_by_time: bool = True) -> pd.DataF
         min_periods=1
     ).mean().values
     
+    # Rolling statistics for time_since_last (mean, std, min, max)
+    df['time_since_last_mean_24h'] = df_indexed['time_since_last'].rolling(
+        window=pd.Timedelta(hours=24),
+        min_periods=1
+    ).mean().values
+    
+    df['time_since_last_std_24h'] = df_indexed['time_since_last'].rolling(
+        window=pd.Timedelta(hours=24),
+        min_periods=1
+    ).std().values
+    
+    df['time_since_last_mean_7d'] = df_indexed['time_since_last'].rolling(
+        window=pd.Timedelta(days=7),
+        min_periods=1
+    ).mean().values
+    
     # Rolling counts (earthquake frequency) - use count() instead of size()
     df['count_rolling_24h'] = df_indexed['magnitude'].rolling(
         window=pd.Timedelta(hours=24),
@@ -166,11 +191,36 @@ def create_lag_features(df: pd.DataFrame, sort_by_time: bool = True) -> pd.DataF
         min_periods=1
     ).count().values
     
-    # Rolling standard deviation
+    df['count_rolling_30d'] = df_indexed['magnitude'].rolling(
+        window=pd.Timedelta(days=30),
+        min_periods=1
+    ).count().values
+    
+    # Earthquake frequency (inverse of time_since_last rolling mean)
+    df['frequency_24h'] = 1.0 / (df['time_since_last_mean_24h'] + 0.001)  # Avoid division by zero
+    df['frequency_7d'] = 1.0 / (df['time_since_last_mean_7d'] + 0.001)
+    
+    # Rolling standard deviation for magnitude
     df['mag_std_24h'] = df_indexed['magnitude'].rolling(
         window=pd.Timedelta(hours=24),
         min_periods=1
     ).std().values
+    
+    df['mag_std_7d'] = df_indexed['magnitude'].rolling(
+        window=pd.Timedelta(days=7),
+        min_periods=1
+    ).std().values
+    
+    # Rolling min/max for magnitude (capture recent extremes)
+    df['mag_max_24h'] = df_indexed['magnitude'].rolling(
+        window=pd.Timedelta(hours=24),
+        min_periods=1
+    ).max().values
+    
+    df['mag_min_24h'] = df_indexed['magnitude'].rolling(
+        window=pd.Timedelta(hours=24),
+        min_periods=1
+    ).min().values
     
     return df
 
@@ -196,6 +246,16 @@ def create_location_features(df: pd.DataFrame) -> pd.DataFrame:
         ((df['longitude'] >= 120) & (df['longitude'] <= -70)) |
         ((df['latitude'] >= -60) & (df['latitude'] <= 60))
     ).astype(int)
+    
+    # Distance features (if we had a reference point, but for now use simple binning)
+    # Bin longitude and latitude for regional patterns
+    df['longitude_bin'] = pd.cut(df['longitude'], bins=10, labels=False)
+    df['latitude_bin'] = pd.cut(df['latitude'], bins=10, labels=False)
+    
+    # Interaction: magnitude * location (some regions may have different patterns)
+    if 'magnitude' in df.columns:
+        df['mag_lat_interaction'] = df['magnitude'] * df['abs_latitude']
+        df['mag_lon_interaction'] = df['magnitude'] * df['longitude'].abs()
     
     return df
 
