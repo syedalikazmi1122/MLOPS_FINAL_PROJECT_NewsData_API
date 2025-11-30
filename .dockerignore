@@ -1,19 +1,114 @@
+# Python
 __pycache__
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
 .Python
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual Environments
 venv*/
 env/
+ENV/
 .venv
+venv*/
+.venv*/
+env*/
+ENV*/
+virtualenv/
+.virtualenv/
+pip-env/
+.pip-env/
+
+# Git
 .git
 .gitignore
+.gitattributes
+
+# Documentation (all markdown files except essential)
 *.md
+!README.md
+!ProjectStatement.md
+docs/
+documentation/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
 *.log
+logs/
+*.log.*
+
+# Databases
 airflow.db
 *.db
+*.sqlite
+*.sqlite3
+
+# Data directories
 minio-data/
-logs/
+data/raw/
+data/processed/*.parquet
+!data/processed/*.dvc
+
+# DVC
+.dvc/cache/
+.dvc/tmp/
+
+# MLflow
+mlruns/
+
+# Airflow
 plugins/__pycache__
+airflow.cfg
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Profiling reports
+*.html
+!templates/*.html
+
+# Backup files
+*.backup
+*.bak
+*.tmp
+
+# Test files (optional - uncomment if you don't want tests in Docker)
+# tests/
+
+# Coverage reports
+.coverage
+htmlcov/
+.pytest_cache/
+.coverage.*
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
