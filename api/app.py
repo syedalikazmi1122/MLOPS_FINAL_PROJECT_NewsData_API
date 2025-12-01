@@ -255,7 +255,7 @@ async def health_check():
 
 @app.get("/metrics", tags=["Monitoring"])
 async def metrics():
-    """Prometheus metrics endpoint."""
+    """Prometheus metrics endpoint.."""
     return Response(
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST
