@@ -84,6 +84,17 @@ def log_to_mlflow(profile, experiment_name: str = "data_profiling"):
     if mlflow_tracking_uri:
         mlflow.set_tracking_uri(mlflow_tracking_uri)
         print(f"[profiling] Using MLflow tracking URI: {mlflow_tracking_uri}")
+        
+        # Set credentials for Dagshub if provided
+        mlflow_username = os.getenv('MLFLOW_TRACKING_USERNAME')
+        mlflow_password = os.getenv('MLFLOW_TRACKING_PASSWORD')
+        if mlflow_username and mlflow_password:
+            import urllib.parse
+            # MLflow uses basic auth via tracking URI
+            parsed = urllib.parse.urlparse(mlflow_tracking_uri)
+            auth_uri = f"{parsed.scheme}://{mlflow_username}:{mlflow_password}@{parsed.netloc}{parsed.path}"
+            mlflow.set_tracking_uri(auth_uri)
+            print(f"[profiling] MLflow authentication configured")
     
     mlflow.set_experiment(experiment_name)
     

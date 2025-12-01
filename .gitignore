@@ -1,55 +1,103 @@
 # Python
-venv/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
+*$py.class
 *.so
-*.egg
-*.egg-info/
-dist/
+.Python
 build/
+dist/
+*.egg-info/
+.eggs/
 
-# Data directories
-data/
-*.csv
-*.json
-*.geojson
-*.ndjson
-*.gz
-*.parquet
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv
+venv*/
+.venv*/
+env*/
+ENV*/
+virtualenv/
+.virtualenv/
+pip-env/
+.pip-env/
 
-# Exception: DVC metadata files should be tracked
-!data/**/*.dvc
+# Data files (tracked by DVC)
+data/raw/*.geojson
+data/raw/*.ndjson.gz
+data/processed/*.parquet
+!data/processed/*.dvc
 
 # DVC
-.dvc/
-.dvcignore
-# Note: .dvc files (metadata) should be tracked in git, not ignored
-# Only the actual data files are ignored
+.dvc/cache/
+.dvc/tmp/
+
+# Airflow
+logs/
+plugins/__pycache__/
+airflow.db
+*.db
 
 # MLflow
 mlruns/
-mlartifacts/
 
 # Environment variables
 .env
 .env.local
+.env.*.local
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.project
+.pydevproject
+.settings/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Logs
-*.log
-logs/
+# MinIO data (if stored locally)
+minio-data/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Profiling reports (generated files)
+*.html
+!templates/*.html
+
+# Backup files
+*.backup
+*.bak
+*.tmp
+
+# Documentation files (keep only essential ones)
+*.md
+!README.md
+!ProjectStatement.md
+
+# Temporary and generated documentation
+docs/
+documentation/
+*.md.bak
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.coverage.*
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
 # Docker
-*.dockerignore
+.dockerignore
