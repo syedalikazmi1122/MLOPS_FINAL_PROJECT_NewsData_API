@@ -4,4 +4,4 @@
 ['remote "minio-storage"']
     url = s3://earthquake-data
 ['remote "dagshub"']
-    url = https://dagshub.com/i222472/my-first-repo.git
+    url = https://dagshub.com/i222472/my-first-repo.git/dvc

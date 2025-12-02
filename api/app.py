@@ -9,6 +9,7 @@ This API:
 - Handles Dagshub authentication
 
 Usage:
+asdad
     uvicorn api.app:app --host 0.0.0.0 --port 8000 
     yar chal jaa na 
 """
@@ -256,7 +257,7 @@ async def health_check():
 
 @app.get("/metrics", tags=["Monitoring"])
 async def metrics():
-    """Prometheus metrics endpoint."""
+    """Prometheus metrics endpoint.."""
     return Response(
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST
