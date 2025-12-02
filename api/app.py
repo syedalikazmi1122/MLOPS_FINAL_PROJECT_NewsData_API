@@ -9,7 +9,8 @@ This API:
 - Handles Dagshub authentication
 
 Usage:
-    uvicorn api.app:app --host 0.0.0.0 --port 8000
+    uvicorn api.app:app --host 0.0.0.0 --port 8000 
+    yar chal jaa na 
 """
 
 import os
