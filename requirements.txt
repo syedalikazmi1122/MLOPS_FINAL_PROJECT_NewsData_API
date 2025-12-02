@@ -40,5 +40,6 @@ pytest-asyncio>=0.21.0
 flake8>=6.1.0
 black>=23.9.0
 
-# CML for model comparison (Phase III)
-cml>=0.18.0
+# Note: CML for model comparison is only needed in CI (GitHub Actions)
+# and is installed via requirements-dev.txt to avoid Python version
+# conflicts inside the Airflow Docker image.

@@ -75,6 +75,7 @@ services:
       - ./train.py:/opt/airflow/train.py
       - ./requirements.txt:/opt/airflow/requirements.txt
       - ./.dvc:/opt/airflow/.dvc
+      - ./.git:/opt/airflow/.git
     command: >
       bash -c "airflow db upgrade &&
                airflow users create --username airflow --firstname Admin --lastname User --role Admin --email admin@example.com --password airflow || true &&
@@ -114,6 +115,7 @@ services:
       - ./train.py:/opt/airflow/train.py
       - ./requirements.txt:/opt/airflow/requirements.txt
       - ./.dvc:/opt/airflow/.dvc
+      - ./.git:/opt/airflow/.git
     command: scheduler
     restart: always
     networks:
